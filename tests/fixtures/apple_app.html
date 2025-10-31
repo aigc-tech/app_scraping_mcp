@@ -1,11 +1,56 @@
 <html>
   <head>
     <meta property="og:title" content="Sample App" />
-    <meta name="description" content="<p>Sample description</p>" />
+    <meta name="description" content="<p>Fallback description</p>" />
   </head>
   <body>
-    <script id="shoebox-media-api-cache-apps" type="application/json">
-      {"123":{"data":[{"attributes":{"name":"Sample App","bundleId":"com.example.sample","description":"<p>Sample description</p>","platformAttributes":{"ios":{"screenshotUrls":["https://example.com/shot1.png","https://example.com/shot2.png"]}},"appPreviews":{"ios":{"appPreviews":[{"previewUrl":"https://example.com/video.mp4"}]}}}}]}}
+    <script type="text/javascript">
+      window.__APP_STORE_STATE__ = {
+        "pageData": {
+          "sections": [
+            {
+              "data": {
+                "app": {
+                  "id": "123456",
+                  "attributes": {
+                    "name": "Sample App",
+                    "bundleId": "com.example.sample",
+                    "description": {
+                      "standard": "<p>Sample description</p>"
+                    }
+                  },
+                  "media": {
+                    "screenshots": [
+                      {"url": "https://example.com/state-shot1.png"},
+                      {"url": "https://example.com/state-shot2.png"}
+                    ],
+                    "videos": [
+                      {"url": "https://example.com/state-video.mp4"},
+                      {"hlsUrl": "https://example.com/state-video.m3u8"}
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      };
     </script>
+    <script type="application/ld+json">
+      {
+        "@context": "http://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Structured Name",
+        "screenshot": [
+          "https://example.com/ld-shot1.png",
+          "https://example.com/ld-shot2.png 2x"
+        ],
+        "video": {
+          "contentUrl": "https://example.com/ld-video.mp4"
+        }
+      }
+    </script>
+    <img data-srcset="https://example.com/html-shot1.jpg 1x, https://example.com/html-shot2.jpg 2x" />
+    <a data-video-url="https://example.com/html-video.mp4"></a>
   </body>
 </html>
