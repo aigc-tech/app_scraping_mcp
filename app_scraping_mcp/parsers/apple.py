@@ -5,7 +5,7 @@ import html
 import json
 import re
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 
 _SCRIPT_RE = re.compile(
     r"<script[^>]+id=\"shoebox-media-api-cache-[^\"]+\"[^>]*>(.*?)</script>",
@@ -31,22 +31,46 @@ _TITLE_RE = re.compile(
 )
 _BUNDLE_RE = re.compile(r"bundleId\"\s*:\s*\"([^\"]+)\"")
 _IMG_ATTR_RE = re.compile(
-    r"<img[^>]+?(?:data-(?:src|screenshot-url)|src|srcset|data-srcset)=\"([^\"]+)\"",
-    re.IGNORECASE,
+    r"<(?:img|source)[^>]+?(?:data-(?:src|screenshot-url|gallery-item-url|hero-gallery-url)|src|srcset|data-srcset)=([\"\'])([^\"\']+)(?:\1)",
+    re.IGNORECASE | re.DOTALL,
 )
 _IMG_DATA_RE = re.compile(
-    r"data-(?:screenshot-url|gallery-item-url)=\"([^\"]+)\"", re.IGNORECASE
-)
-_VIDEO_SOURCE_RE = re.compile(
-    r"<(?:video|source)[^>]+?(?:src|data-src|data-video-url|data-preview-url|data-hls-url)=\"([^\"]+)\"",
+    r"data-(?:screenshot-url|gallery-item-url|hero-gallery-url)=['\"]([^'\"]+)['\"]",
     re.IGNORECASE,
 )
+_STYLE_URL_RE = re.compile(r"url\((['\"]?)(https?://[^)'\"]+)\1\)", re.IGNORECASE)
+_POSTER_ATTR_RE = re.compile(
+    r"<(?:video|iframe)[^>]+poster=([\"\'])([^\"\']+)(?:\1)",
+    re.IGNORECASE | re.DOTALL,
+)
+_VIDEO_SOURCE_RE = re.compile(
+    r"<(?:video|source|iframe)[^>]+?(?:src|data-src|data-video-url|data-preview-url|data-hls-url|data-stream-url)=([\"\'])([^\"\']+)(?:\1)",
+    re.IGNORECASE | re.DOTALL,
+)
 _VIDEO_DATA_RE = re.compile(
-    r"data-(?:video-url|preview-url|hls-url|stream-url)=\"([^\"]+)\"",
+    r"data-(?:video-url|preview-url|hls-url|stream-url)=['\"]([^'\"]+)['\"]",
     re.IGNORECASE,
 )
 
 _APP_STATE_MARKER = "window.__APP_STORE_STATE__"
+
+_CONTEXT_HINT_KEYS = {
+    "type",
+    "kind",
+    "role",
+    "subtype",
+    "mediatype",
+    "assettype",
+    "contenttype",
+    "displaytype",
+    "displaykind",
+    "mediasubtype",
+    "mediatypeidentifier",
+    "componentkind",
+    "gallerytype",
+    "itemtype",
+    "playbackstyle",
+}
 
 
 @dataclass
@@ -133,6 +157,40 @@ def _parse_json_blob(blob: str) -> Optional[Any]:
     return None
 
 
+def _infer_context_from_value(value: Any, *, key: Optional[str] = None) -> Optional[str]:
+    if isinstance(value, str):
+        lowered = value.lower()
+        if any(token in lowered for token in ("video", "preview", "trailer", "movie")):
+            return "video"
+        if any(token in lowered for token in ("screenshot", "artwork", "image", "poster", "gallery")):
+            return "screenshot"
+    if isinstance(value, bool) and key:
+        lowered_key = key.lower()
+        if value and lowered_key in {"isvideo", "hasvideo", "ispreview", "haspreview"}:
+            return "video"
+        if value and lowered_key in {"isscreenshot", "hasimage", "hasartwork", "hasscreenshot"}:
+            return "screenshot"
+    return None
+
+
+def _infer_dict_context(data: Mapping[str, Any], inherited: Optional[str]) -> Optional[str]:
+    if inherited:
+        return inherited
+    for key, value in data.items():
+        lowered = key.lower()
+        if lowered in _CONTEXT_HINT_KEYS:
+            inferred = _infer_context_from_value(value, key=lowered)
+            if inferred:
+                return inferred
+    for key, value in data.items():
+        lowered = key.lower()
+        if lowered in {"isvideo", "hasvideo", "ispreview", "haspreview", "hasscreenshot"} and isinstance(value, bool):
+            inferred = _infer_context_from_value(value, key=lowered)
+            if inferred:
+                return inferred
+    return None
+
+
 def _collect_from_json(data: Any, collected: Dict[str, Any], *, context: Optional[str] = None, visited: Optional[Set[int]] = None) -> None:
     if visited is None:
         visited = set()
@@ -142,6 +200,7 @@ def _collect_from_json(data: Any, collected: Dict[str, Any], *, context: Optiona
     visited.add(obj_id)
 
     if isinstance(data, dict):
+        dict_context = _infer_dict_context(data, context)
         for key, value in data.items():
             lower = key.lower()
             if lower == "name" and isinstance(value, str) and not collected.get("name"):
@@ -155,31 +214,38 @@ def _collect_from_json(data: Any, collected: Dict[str, Any], *, context: Optiona
                 if text_value and not collected.get("description"):
                     collected["description"] = text_value
 
-            new_context = context
-            if "screenshot" in lower or "artwork" in lower and "url" not in lower:
+            new_context = dict_context or context
+            if "screenshot" in lower or "artworkurl" in lower or ("artwork" in lower and "url" not in lower):
                 new_context = "screenshot"
             elif "preview" in lower or "video" in lower or "trailer" in lower:
                 new_context = "video"
+            elif lower in {"poster", "backgroundimage", "image"}:
+                new_context = new_context or "screenshot"
+            elif lower in {"isvideo", "hasvideo", "ispreview", "haspreview"} and isinstance(value, bool):
+                if value:
+                    new_context = "video"
+            elif lower in {"isscreenshot", "hasimage", "hasartwork", "hasscreenshot"} and isinstance(value, bool):
+                if value:
+                    new_context = "screenshot"
+
+            context_for_value = new_context
+            if lower in {"url", "source", "src", "srcurl", "asseturl", "contenturl", "hlsurl", "previewurl", "videourl", "streamurl", "posterurl"}:
+                if not context_for_value:
+                    context_for_value = dict_context or context
+            if not context_for_value:
+                inferred = _infer_context_from_value(value, key=lower)
+                if inferred:
+                    context_for_value = inferred
 
             if isinstance(value, str):
-                if new_context == "screenshot":
+                if context_for_value == "screenshot":
                     _extend_media(collected.setdefault("screenshots", []), value)
                     continue
-                if new_context == "video":
+                if context_for_value == "video":
                     _extend_media(collected.setdefault("videos", []), value)
                     continue
 
-            if lower in {"url", "source", "src", "srcurl", "asseturl", "contenturl", "hlsurl", "previewurl"}:
-                if context == "screenshot":
-                    _extend_media(collected.setdefault("screenshots", []), value)
-                    _collect_from_json(value, collected, context=context, visited=visited)
-                    continue
-                if context == "video":
-                    _extend_media(collected.setdefault("videos", []), value)
-                    _collect_from_json(value, collected, context=context, visited=visited)
-                    continue
-
-            _collect_from_json(value, collected, context=new_context, visited=visited)
+            _collect_from_json(value, collected, context=context_for_value, visited=visited)
     elif isinstance(data, list):
         for item in data:
             _collect_from_json(item, collected, context=context, visited=visited)
@@ -292,9 +358,17 @@ def _dedupe_media(value: Any) -> List[str]:
 def _extract_screenshots_from_html(html_text: str) -> List[str]:
     urls: List[str] = []
     for match in _IMG_ATTR_RE.finditer(html_text):
-        urls.extend(_split_media_value(match.group(1)))
+        urls.extend(_split_media_value(match.group(2)))
     for match in _IMG_DATA_RE.finditer(html_text):
         url = _normalize_url(match.group(1))
+        if url:
+            urls.append(url)
+    for match in _POSTER_ATTR_RE.finditer(html_text):
+        url = _normalize_url(match.group(2))
+        if url:
+            urls.append(url)
+    for match in _STYLE_URL_RE.finditer(html_text):
+        url = _normalize_url(match.group(2))
         if url:
             urls.append(url)
     return [item for index, item in enumerate(urls) if item and item not in urls[:index]]
@@ -303,7 +377,7 @@ def _extract_screenshots_from_html(html_text: str) -> List[str]:
 def _extract_videos_from_html(html_text: str) -> List[str]:
     urls: List[str] = []
     for match in _VIDEO_SOURCE_RE.finditer(html_text):
-        urls.extend(_split_media_value(match.group(1)))
+        urls.extend(_split_media_value(match.group(2)))
     for match in _VIDEO_DATA_RE.finditer(html_text):
         url = _normalize_url(match.group(1))
         if url:

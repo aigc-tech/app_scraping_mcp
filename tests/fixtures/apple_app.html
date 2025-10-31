@@ -27,7 +27,20 @@
                     "videos": [
                       {"url": "https://example.com/state-video.mp4"},
                       {"hlsUrl": "https://example.com/state-video.m3u8"}
-                    ]
+                    ],
+                    "gallery": {
+                      "items": [
+                        {
+                          "type": "APP_PREVIEW",
+                          "url": "https://example.com/type-video.mp4",
+                          "hlsUrl": "https://example.com/type-video.m3u8"
+                        },
+                        {
+                          "type": "IPHONE_SCREENSHOT",
+                          "url": "https://example.com/type-shot.png"
+                        }
+                      ]
+                    }
                   }
                 }
               }
@@ -35,6 +48,9 @@
           ]
         }
       };
+    </script>
+    <script type="text/javascript">
+      window.__APP_STORE_STATE__ = JSON.parse('{"pageData":{"sections":[{"data":{"mediaItems":[{"type":"VIDEO_TRAILER","resources":{"url":"https://example.com/type-json-video.mp4"}},{"type":"GALLERY_SCREENSHOT","resources":{"url":"https://example.com/type-json-shot.png"}}]}}]}}');
     </script>
     <script type="application/ld+json">
       {
@@ -51,6 +67,10 @@
       }
     </script>
     <img data-srcset="https://example.com/html-shot1.jpg 1x, https://example.com/html-shot2.jpg 2x" />
+    <img src='https://example.com/html-shot3.jpg' />
+    <source data-srcset='https://example.com/html-shot4.jpg 1x, https://example.com/html-shot5.jpg 2x' />
+    <div style="background-image: url('https://example.com/style-shot.png');"></div>
     <a data-video-url="https://example.com/html-video.mp4"></a>
+    <video data-preview-url='https://example.com/html-video2.mp4' poster="https://example.com/poster-shot.jpg"></video>
   </body>
 </html>
