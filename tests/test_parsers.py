@@ -20,19 +20,14 @@ def test_parse_apple_fixture():
     assert details.description == "Sample description"
     expected_screenshots = sorted(
         [
+            "https://example.com/iphone-shot1-fallback.jpg",
+            "https://example.com/iphone-shot1.jpg",
+            "https://example.com/iphone-shot1@2x.jpg",
+            "https://example.com/iphone-shot2.jpg",
+            "https://example.com/iphone-style-shot.jpg",
             "https://example.com/state-shot1.png",
-            "https://example.com/state-shot2.png",
-            "https://example.com/type-shot.png",
             "https://example.com/type-json-shot.png",
-            "https://example.com/ld-shot1.png",
-            "https://example.com/ld-shot2.png",
-            "https://example.com/html-shot1.jpg",
-            "https://example.com/html-shot2.jpg",
-            "https://example.com/html-shot3.jpg",
-            "https://example.com/html-shot4.jpg",
-            "https://example.com/html-shot5.jpg",
-            "https://example.com/style-shot.png",
-            "https://example.com/poster-shot.jpg",
+            "https://example.com/type-shot.png",
         ]
     )
     expected_videos = sorted(
@@ -44,7 +39,7 @@ def test_parse_apple_fixture():
             "https://example.com/type-json-video.mp4",
             "https://example.com/ld-video.mp4",
             "https://example.com/html-video.mp4",
-            "https://example.com/html-video2.mp4",
+            "blob:https://example.com/blob-video",
         ]
     )
     assert details.screenshots == expected_screenshots

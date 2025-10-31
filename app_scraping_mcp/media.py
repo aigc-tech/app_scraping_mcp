@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import os
 import pathlib
-import urllib.request
 from typing import Callable, Iterable, Optional
 
 from .http_client import AntiScrapingSession
@@ -61,18 +60,14 @@ def save_videos(
             saved_paths.append(target_path)
             continue
 
-        request = urllib.request.Request(video_url, headers=headers or {})
         try:
-            with urllib.request.urlopen(request, timeout=session.timeout) as response:  # type: ignore[arg-type]
-                _ensure_directory(target_path.parent)
-                with target_path.open("wb") as file:
-                    while True:
-                        chunk = response.read(64 * 1024)
-                        if not chunk:
-                            break
-                        file.write(chunk)
+            response = session.get(video_url, headers=headers)
+            response.raise_for_status()
         except Exception as exc:  # pragma: no cover - network dependent
             raise MediaDownloadError(f"Failed to download {video_url}: {exc}") from exc
+
+        _ensure_directory(target_path.parent)
+        target_path.write_bytes(response.content)
         saved_paths.append(target_path)
     return saved_paths
 

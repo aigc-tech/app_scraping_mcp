@@ -5,6 +5,7 @@ import html
 import json
 import re
 from dataclasses import dataclass
+from html.parser import HTMLParser
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 
 _SCRIPT_RE = re.compile(
@@ -83,7 +84,11 @@ class AppleAppDetails:
 
 
 def _extract_attributes(html_text: str) -> Dict[str, Any]:
-    collected: Dict[str, Any] = {"screenshots": [], "videos": []}
+    collected: Dict[str, Any] = {
+        "screenshots": [],
+        "iphone_screenshots": [],
+        "videos": [],
+    }
     for blob in _iter_json_blobs(html_text):
         payload = _parse_json_blob(blob)
         if payload is None:
@@ -173,14 +178,41 @@ def _infer_context_from_value(value: Any, *, key: Optional[str] = None) -> Optio
     return None
 
 
+def _has_iphone_reference(value: Any, visited: Optional[Set[int]] = None) -> bool:
+    if isinstance(value, str):
+        return "iphone" in value.lower()
+
+    if visited is None:
+        visited = set()
+
+    obj_id = id(value)
+    if obj_id in visited:
+        return False
+    visited.add(obj_id)
+
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if _has_iphone_reference(key, visited) or _has_iphone_reference(item, visited):
+                return True
+    elif isinstance(value, (list, tuple, set)):
+        for item in value:
+            if _has_iphone_reference(item, visited):
+                return True
+    return False
+
+
 def _infer_dict_context(data: Mapping[str, Any], inherited: Optional[str]) -> Optional[str]:
-    if inherited:
-        return inherited
+    iphone_hint = _has_iphone_reference(data)
+    current = inherited
+    if current == "screenshot" and iphone_hint:
+        current = "iphone_screenshot"
     for key, value in data.items():
         lowered = key.lower()
         if lowered in _CONTEXT_HINT_KEYS:
             inferred = _infer_context_from_value(value, key=lowered)
             if inferred:
+                if inferred == "screenshot" and _has_iphone_reference(value):
+                    return "iphone_screenshot"
                 return inferred
     for key, value in data.items():
         lowered = key.lower()
@@ -188,10 +220,20 @@ def _infer_dict_context(data: Mapping[str, Any], inherited: Optional[str]) -> Op
             inferred = _infer_context_from_value(value, key=lowered)
             if inferred:
                 return inferred
+    if current:
+        return current
+    if iphone_hint:
+        return "iphone_screenshot"
     return None
 
 
-def _collect_from_json(data: Any, collected: Dict[str, Any], *, context: Optional[str] = None, visited: Optional[Set[int]] = None) -> None:
+def _collect_from_json(
+    data: Any,
+    collected: Dict[str, Any],
+    *,
+    context: Optional[str] = None,
+    visited: Optional[Set[int]] = None,
+) -> None:
     if visited is None:
         visited = set()
     obj_id = id(data)
@@ -232,12 +274,25 @@ def _collect_from_json(data: Any, collected: Dict[str, Any], *, context: Optiona
             if lower in {"url", "source", "src", "srcurl", "asseturl", "contenturl", "hlsurl", "previewurl", "videourl", "streamurl", "posterurl"}:
                 if not context_for_value:
                     context_for_value = dict_context or context
+            if context_for_value == "screenshot":
+                if "iphone" in lower:
+                    context_for_value = "iphone_screenshot"
+                elif not isinstance(value, list) and _has_iphone_reference(value):
+                    context_for_value = "iphone_screenshot"
             if not context_for_value:
                 inferred = _infer_context_from_value(value, key=lower)
                 if inferred:
                     context_for_value = inferred
+                    if (
+                        context_for_value == "screenshot"
+                        and _has_iphone_reference({"key": key, "value": value})
+                    ):
+                        context_for_value = "iphone_screenshot"
 
             if isinstance(value, str):
+                if context_for_value == "iphone_screenshot":
+                    _extend_media(collected.setdefault("iphone_screenshots", []), value)
+                    continue
                 if context_for_value == "screenshot":
                     _extend_media(collected.setdefault("screenshots", []), value)
                     continue
@@ -250,7 +305,9 @@ def _collect_from_json(data: Any, collected: Dict[str, Any], *, context: Optiona
         for item in data:
             _collect_from_json(item, collected, context=context, visited=visited)
     else:
-        if context == "screenshot":
+        if context == "iphone_screenshot":
+            _extend_media(collected.setdefault("iphone_screenshots", []), data)
+        elif context == "screenshot":
             _extend_media(collected.setdefault("screenshots", []), data)
         elif context == "video":
             _extend_media(collected.setdefault("videos", []), data)
@@ -303,6 +360,8 @@ def _normalize_url(url: str) -> Optional[str]:
         cleaned = "https:" + cleaned
     if cleaned.startswith("http://") or cleaned.startswith("https://"):
         return cleaned
+    if cleaned.startswith("blob:"):
+        return cleaned
     return None
 
 
@@ -325,10 +384,13 @@ def parse_app_page(html_text: str) -> AppleAppDetails:
         match = _BUNDLE_RE.search(html_text)
         bundle_id = match.group(1) if match else None
 
-    screenshots = _merge_media_lists(
-        _dedupe_media(attributes.get("screenshots")),
-        _extract_screenshots_from_html(html_text),
-    )
+    iphone_screens = _dedupe_media(attributes.get("iphone_screenshots"))
+    general_screens = _dedupe_media(attributes.get("screenshots"))
+    html_screens = _extract_screenshots_from_html(html_text)
+
+    screenshots = _merge_media_lists(iphone_screens, html_screens)
+    if not screenshots:
+        screenshots = _merge_media_lists(general_screens, html_screens)
 
     videos = _merge_media_lists(
         _dedupe_media(attributes.get("videos")),
@@ -355,23 +417,113 @@ def _dedupe_media(value: Any) -> List[str]:
     return [item for index, item in enumerate(collected) if item and item not in collected[:index]]
 
 
+class _IPhoneScreenshotHTMLParser(HTMLParser):
+    """HTML parser that extracts screenshots from the iPhone section only."""
+
+    _CONTAINER_TAGS = {"section", "div", "ul", "ol", "figure", "picture"}
+    _MEDIA_TAGS = {"img", "source"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self._stack: List[bool] = []
+        self._pending_section = False
+        self._screenshots: List[str] = []
+        self._seen: Set[str] = set()
+
+    def handle_starttag(self, tag: str, attrs: List[tuple[str, Optional[str]]]) -> None:
+        attr_map = {key.lower(): (value or "") for key, value in attrs}
+        values_text = " ".join(attr_map.values()).lower()
+        keys_text = " ".join(attr_map.keys()).lower()
+
+        def _contains_target(text: str) -> bool:
+            lowered = text.lower()
+            return "iphone" in lowered and "screenshot" in lowered
+
+        attr_matches = _contains_target(values_text) or _contains_target(keys_text)
+
+        if tag in {"h2", "h3"} and _contains_target(values_text):
+            self._pending_section = True
+
+        parent_active = self._stack[-1] if self._stack else False
+        start_new_section = False
+
+        if tag in self._CONTAINER_TAGS and (attr_matches or self._pending_section):
+            start_new_section = True
+            self._pending_section = False
+        elif attr_matches and tag not in self._MEDIA_TAGS:
+            start_new_section = True
+            self._pending_section = False
+
+        active = parent_active or start_new_section
+        self._stack.append(active)
+
+        if active and tag in self._MEDIA_TAGS:
+            self._record_media(attr_map)
+
+        if active and "style" in attr_map:
+            for match in _STYLE_URL_RE.finditer(attr_map["style"]):
+                self._add_url(match.group(2))
+
+    def handle_endtag(self, tag: str) -> None:
+        if self._stack:
+            self._stack.pop()
+
+    def handle_data(self, data: str) -> None:
+        if data and "iphone screenshots" in data.lower():
+            self._pending_section = True
+
+    def _record_media(self, attrs: Mapping[str, str]) -> None:
+        for key in (
+            "data-screenshot-url",
+            "data-gallery-item-url",
+            "data-hero-gallery-url",
+            "data-srcset",
+            "data-src",
+            "srcset",
+            "src",
+        ):
+            value = attrs.get(key)
+            if not value:
+                continue
+            for url in _split_media_value(value):
+                self._add_url(url)
+
+    def _add_url(self, url: str) -> None:
+        if not url or url in self._seen:
+            return
+        self._seen.add(url)
+        self._screenshots.append(url)
+
+    @property
+    def screenshots(self) -> List[str]:
+        return list(self._screenshots)
+
+
 def _extract_screenshots_from_html(html_text: str) -> List[str]:
-    urls: List[str] = []
+    parser = _IPhoneScreenshotHTMLParser()
+    parser.feed(html_text)
+    parser.close()
+    urls = parser.screenshots
+    if urls:
+        return urls
+
+    # Fallback to broader extraction if the dedicated parser found nothing.
+    fallback: List[str] = []
     for match in _IMG_ATTR_RE.finditer(html_text):
-        urls.extend(_split_media_value(match.group(2)))
+        fallback.extend(_split_media_value(match.group(2)))
     for match in _IMG_DATA_RE.finditer(html_text):
         url = _normalize_url(match.group(1))
         if url:
-            urls.append(url)
+            fallback.append(url)
     for match in _POSTER_ATTR_RE.finditer(html_text):
         url = _normalize_url(match.group(2))
         if url:
-            urls.append(url)
+            fallback.append(url)
     for match in _STYLE_URL_RE.finditer(html_text):
         url = _normalize_url(match.group(2))
         if url:
-            urls.append(url)
-    return [item for index, item in enumerate(urls) if item and item not in urls[:index]]
+            fallback.append(url)
+    return [item for index, item in enumerate(fallback) if item and item not in fallback[:index]]
 
 
 def _extract_videos_from_html(html_text: str) -> List[str]:
