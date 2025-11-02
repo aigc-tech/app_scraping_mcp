@@ -1,0 +1,21 @@
+[project]
+name = "app-scraping-mcp"
+version = "0.1.0"
+description = "MCP server for scraping Apple App Store and Google Play metadata."
+authors = [{ name = "AutoGen", email = "autogen@example.com" }]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=0.1.1",
+]
+
+[project.scripts]
+app-scraping-mcp = "app_scraping_mcp.cli:main"
+
+[build-system]
+requires = ["setuptools>=67"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+pythonpath = ["."]

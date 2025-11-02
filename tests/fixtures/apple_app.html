@@ -1,0 +1,92 @@
+<html>
+  <head>
+    <meta property="og:title" content="Sample App" />
+    <meta name="description" content="<p>Fallback description</p>" />
+  </head>
+  <body>
+    <script type="text/javascript">
+      window.__APP_STORE_STATE__ = {
+        "pageData": {
+          "sections": [
+            {
+              "data": {
+                "app": {
+                  "id": "123456",
+                  "attributes": {
+                    "name": "Sample App",
+                    "bundleId": "com.example.sample",
+                    "description": {
+                      "standard": "<p>Sample description</p>"
+                    }
+                  },
+                  "media": {
+                    "screenshots": [
+                      {
+                        "url": "https://example.com/state-shot1.png",
+                        "deviceFamily": "iphone"
+                      },
+                      {
+                        "url": "https://example.com/state-shot2.png",
+                        "deviceFamily": "ipad"
+                      }
+                    ],
+                    "videos": [
+                      {"url": "https://example.com/state-video.mp4"},
+                      {"hlsUrl": "https://example.com/state-video.m3u8"}
+                    ],
+                    "gallery": {
+                      "items": [
+                        {
+                          "type": "APP_PREVIEW",
+                          "url": "https://example.com/type-video.mp4",
+                          "hlsUrl": "https://example.com/type-video.m3u8"
+                        },
+                        {
+                          "type": "IPHONE_SCREENSHOT",
+                          "url": "https://example.com/type-shot.png"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      };
+    </script>
+    <script type="text/javascript">
+      window.__APP_STORE_STATE__ = JSON.parse('{"pageData":{"sections":[{"data":{"mediaItems":[{"type":"VIDEO_TRAILER","resources":{"url":"https://example.com/type-json-video.mp4"}},{"type":"IPHONE_SCREENSHOT","resources":{"url":"https://example.com/type-json-shot.png"}},{"type":"IPAD_SCREENSHOT","resources":{"url":"https://example.com/type-json-ipad-shot.png"}}]}}]}}');
+    </script>
+    <script type="application/ld+json">
+      {
+        "@context": "http://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Structured Name",
+        "screenshot": [
+          "https://example.com/ld-shot1.png",
+          "https://example.com/ld-shot2.png 2x"
+        ],
+        "video": {
+          "contentUrl": "https://example.com/ld-video.mp4"
+        }
+      }
+    </script>
+    <section aria-label="iPhone Screenshots">
+      <div class="screenshot-gallery">
+        <picture>
+          <source data-srcset="https://example.com/iphone-shot1.jpg 1x, https://example.com/iphone-shot1@2x.jpg 2x" />
+          <img src="https://example.com/iphone-shot1-fallback.jpg" />
+        </picture>
+        <img data-screenshot-url="https://example.com/iphone-shot2.jpg" />
+      </div>
+      <div class="screenshot-gallery" style="background-image: url('https://example.com/iphone-style-shot.jpg');"></div>
+    </section>
+    <section aria-label="iPad Screenshots">
+      <img src="https://example.com/ipad-shot.jpg" />
+    </section>
+    <img src='https://example.com/html-shot-outside.jpg' />
+    <a data-video-url="https://example.com/html-video.mp4"></a>
+    <video data-preview-url='blob:https://example.com/blob-video' poster="https://example.com/poster-shot.jpg"></video>
+  </body>
+</html>
